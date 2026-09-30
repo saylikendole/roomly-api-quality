@@ -23,7 +23,7 @@ Test effort follows that order.
 | Concurrency | Playwright + `Promise.all` | Race conditions on shared resources | `tests/specs/concurrency.spec.ts` |
 | Performance | k6 | Latency and errors under realistic and extreme load | `perf/scenarios` |
 
-There is no UI in this project on purpose. Most booking rules live in the API, and testing them there is faster and more precise than going through a browser.
+There is no UI in this project on purpose. Most booking rules live in the API, and testing them there is faster and more precise than going through a browser. My [Gigbox E2E suite](https://github.com/saylikendole/gigbox-e2e) covers the browser side.
 
 ## Test design techniques used
 
