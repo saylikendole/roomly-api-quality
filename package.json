@@ -20,7 +20,8 @@
     "perf:smoke": "k6 run perf/scenarios/smoke.ts",
     "perf:load": "k6 run perf/scenarios/load.ts",
     "perf:stress": "k6 run perf/scenarios/stress.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p perf",
+    "perf:contention": "k6 run perf/scenarios/contention.ts"
   },
   "dependencies": {
     "express": "^5.2.1",
