@@ -1,0 +1,38 @@
+{
+  "name": "roomly-api-quality",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API and performance test suite for Roomly, a meeting-room booking REST API. Playwright API tests + k6.",
+  "author": "Sayli Kendole",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx app/src/server.ts",
+    "start:test": "cross-env ENABLE_TEST_ROUTES=true tsx app/src/server.ts",
+    "test": "playwright test",
+    "test:smoke": "playwright test --grep @smoke",
+    "test:regression": "playwright test --grep @regression",
+    "test:security": "playwright test --grep @security",
+    "report": "playwright show-report",
+    "perf:smoke": "k6 run perf/scenarios/smoke.ts",
+    "perf:load": "k6 run perf/scenarios/load.ts",
+    "perf:stress": "k6 run perf/scenarios/stress.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/express": "^5.0.6",
+    "@types/k6": "^2.3.0",
+    "@types/node": "^26.6.3",
+    "cross-env": "^10.1.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
