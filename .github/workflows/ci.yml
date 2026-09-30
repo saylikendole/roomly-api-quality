@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 5 * * 1-5' # weekday mornings, catches drift in dependencies
+  workflow_dispatch:
+    inputs:
+      extra_scenario:
+        description: 'Extra k6 scenario to run after smoke + load'
+        type: choice
+        options: [none, stress, contention]
+        default: none
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  K6_NO_USAGE_REPORT: 'true'
+
+jobs:
+  api-tests:
+    name: API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Type check (app, tests and k6 scripts)
+        run: npm run typecheck
+      - name: Run API tests
+        # API tests need no browser, so there's no `playwright install` step
+        run: npx playwright test
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/junit.xml
+          retention-days: 14
+
+  performance:
+    name: Performance (k6)
+    needs: api-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: grafana/setup-k6-action@v1
+
+      - name: Start the API
+        run: |
+          npm run start:test > api.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/health && exit 0
+            sleep 1
+          done
+          echo "API did not start"; cat api.log; exit 1
+
+      - run: mkdir -p perf/results
+
+      - name: Smoke test
+        run: k6 run perf/scenarios/smoke.ts
+
+      - name: Load test
+        env:
+          K6_WEB_DASHBOARD: 'true'
+          K6_WEB_DASHBOARD_EXPORT: perf/results/load-report.html
+        run: k6 run perf/scenarios/load.ts
+
+      - name: Extra scenario (${{ inputs.extra_scenario }})
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.extra_scenario != 'none' }}
+        env:
+          K6_WEB_DASHBOARD: 'true'
+          K6_WEB_DASHBOARD_EXPORT: perf/results/${{ inputs.extra_scenario }}-report.html
+        run: k6 run perf/scenarios/${{ inputs.extra_scenario }}.ts
+
+      - name: Upload k6 reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-reports
+          path: perf/results/
+          retention-days: 14
