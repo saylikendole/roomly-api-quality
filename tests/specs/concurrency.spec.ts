@@ -19,7 +19,7 @@ test.describe('Concurrency', () => {
 
     // Fire all requests at once, the way a busy Monday morning would
     const responses = await Promise.all(
-      members.map((m, i) => m.createBooking({ roomId: room.id, title: `Racer ${i + 1}`, attendees: 2, ...window })),
+      members.map((m, i) => m.bookings.create({ roomId: room.id, title: `Racer ${i + 1}`, attendees: 2, ...window })),
     );
     const statuses = responses.map((r) => r.status());
 
@@ -32,7 +32,7 @@ test.describe('Concurrency', () => {
 
     const responses = await Promise.all(
       members.map((m, i) =>
-        m.createBooking({ roomId: room.id, title: `Slot ${i + 1}`, attendees: 2, ...slot({ daysAhead: 5, hour: 8 + i }) }),
+        m.bookings.create({ roomId: room.id, title: `Slot ${i + 1}`, attendees: 2, ...slot({ daysAhead: 5, hour: 8 + i }) }),
       ),
     );
 

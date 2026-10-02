@@ -1,6 +1,7 @@
 import { test as base, expect as baseExpect, type APIResponse } from '@playwright/test';
 import type { z } from 'zod';
-import { RoomlyClient, unique } from './support/roomly-client';
+import { RoomlyApi } from './api/RoomlyApi';
+import { unique } from './support/unique';
 import { ErrorSchema, RoomSchema, type Room } from './support/schemas';
 
 export const SEEDED = {
@@ -10,13 +11,13 @@ export const SEEDED = {
 
 type Fixtures = {
   /** Unauthenticated client */
-  anon: RoomlyClient;
+  anon: RoomlyApi;
   /** Logged-in admin (seeded account) */
-  admin: RoomlyClient;
+  admin: RoomlyApi;
   /** A brand-new member created for this test only */
-  member: RoomlyClient;
+  member: RoomlyApi;
   /** Factory for extra fresh members, e.g. for permission or concurrency tests */
-  newMember: () => Promise<RoomlyClient>;
+  newMember: () => Promise<RoomlyApi>;
   /** A fresh 8-person room created for this test only */
   room: Room;
 };
@@ -28,19 +29,19 @@ type Fixtures = {
  */
 export const test = base.extend<Fixtures>({
   anon: async ({ request }, use) => {
-    await use(new RoomlyClient(request));
+    await use(RoomlyApi.anonymous(request));
   },
 
   admin: async ({ request }, use) => {
-    await use(await RoomlyClient.loggedIn(request, SEEDED.admin));
+    await use(await RoomlyApi.loggedIn(request, SEEDED.admin));
   },
 
   newMember: async ({ request, admin }, use) => {
     await use(async () => {
       const creds = { email: unique.email(), password: 'Str0ng#Pass' };
-      const res = await admin.createUser({ name: 'Test Member', ...creds });
+      const res = await admin.users.create({ name: 'Test Member', ...creds });
       baseExpect(res.status(), await res.text()).toBe(201);
-      return RoomlyClient.loggedIn(request, creds);
+      return RoomlyApi.loggedIn(request, creds);
     });
   },
 
@@ -49,7 +50,7 @@ export const test = base.extend<Fixtures>({
   },
 
   room: async ({ admin }, use) => {
-    const res = await admin.createRoom({ name: unique.roomName(), capacity: 8, floor: 4, equipment: ['screen'] });
+    const res = await admin.rooms.create({ name: unique.roomName(), capacity: 8, floor: 4, equipment: ['screen'] });
     baseExpect(res.status(), await res.text()).toBe(201);
     await use(RoomSchema.parse(await res.json()));
   },

@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures';
-import { unique } from '../support/roomly-client';
+import { unique } from '../support/unique';
 import { slot } from '../support/time';
 
 /**
@@ -12,22 +12,22 @@ test.describe('Bookings: idempotency keys', () => {
     const key = `retry-${unique.id()}`;
     const body = { roomId: room.id, title: 'Retry-safe', attendees: 2, ...slot() };
 
-    const first = await member.createBooking(body, { idempotencyKey: key });
-    const retry = await member.createBooking(body, { idempotencyKey: key });
+    const first = await member.bookings.create(body, { idempotencyKey: key });
+    const retry = await member.bookings.create(body, { idempotencyKey: key });
 
     expect(first.status()).toBe(201);
     expect(retry.status()).toBe(200);
     expect(retry.headers()['idempotent-replay']).toBe('true');
     expect((await retry.json()).id).toBe((await first.json()).id);
 
-    const { total } = await (await member.myBookings()).json();
+    const { total } = await (await member.bookings.mine()).json();
     expect(total).toBe(1);
   });
 
   test('without a key, a retry is a new request and hits the overlap rule @regression', async ({ member, room }) => {
     const body = { roomId: room.id, title: 'No key', attendees: 2, ...slot() };
-    expect((await member.createBooking(body)).status()).toBe(201);
-    await expect(await member.createBooking(body)).toFailWith(409, 'BOOKING_CONFLICT');
+    expect((await member.bookings.create(body)).status()).toBe(201);
+    await expect(await member.bookings.create(body)).toFailWith(409, 'BOOKING_CONFLICT');
   });
 
   test('keys are scoped per user: the same key from two users creates two bookings @security', async ({
@@ -38,8 +38,8 @@ test.describe('Bookings: idempotency keys', () => {
     const key = `shared-${unique.id()}`;
     const other = await newMember();
 
-    const mine = await member.createBooking({ roomId: room.id, title: 'Mine', attendees: 1, ...slot({ daysAhead: 2 }) }, { idempotencyKey: key });
-    const theirs = await other.createBooking({ roomId: room.id, title: 'Theirs', attendees: 1, ...slot({ daysAhead: 3 }) }, { idempotencyKey: key });
+    const mine = await member.bookings.create({ roomId: room.id, title: 'Mine', attendees: 1, ...slot({ daysAhead: 2 }) }, { idempotencyKey: key });
+    const theirs = await other.bookings.create({ roomId: room.id, title: 'Theirs', attendees: 1, ...slot({ daysAhead: 3 }) }, { idempotencyKey: key });
 
     expect(mine.status()).toBe(201);
     expect(theirs.status()).toBe(201);
@@ -51,7 +51,7 @@ test.describe('Bookings: idempotency keys', () => {
     ['too long (65 chars)', 'k'.repeat(65)],
   ] as const) {
     test(`rejects a key that is ${name} @regression`, async ({ member, room }) => {
-      const res = await member.createBooking({ roomId: room.id, title: 'Bad key', attendees: 1, ...slot() }, { idempotencyKey: key });
+      const res = await member.bookings.create({ roomId: room.id, title: 'Bad key', attendees: 1, ...slot() }, { idempotencyKey: key });
       await expect(res).toFailWith(400, 'INVALID_IDEMPOTENCY_KEY');
     });
   }

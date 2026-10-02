@@ -27,11 +27,11 @@ test.describe('Bookings: overlap rules', () => {
   for (const c of cases) {
     test(`${c.name} → ${c.clash ? '409 conflict' : '201 created'} @regression`, async ({ member, newMember, room }) => {
       const existing = slot({ daysAhead: 2, ...EXISTING });
-      expect((await member.createBooking({ roomId: room.id, title: 'Existing', attendees: 2, ...existing })).status()).toBe(201);
+      expect((await member.bookings.create({ roomId: room.id, title: 'Existing', attendees: 2, ...existing })).status()).toBe(201);
 
       const other = await newMember();
       const start = shift(existing.start, c.startOffset);
-      const res = await other.createBooking({
+      const res = await other.bookings.create({
         roomId: room.id,
         title: 'Candidate',
         attendees: 2,
@@ -55,11 +55,11 @@ test.describe('Bookings: overlap rules', () => {
     room,
   }) => {
     const existing = slot({ daysAhead: 2, ...EXISTING });
-    await member.createBooking({ roomId: room.id, title: 'Existing (UTC)', attendees: 2, ...existing });
+    await member.bookings.create({ roomId: room.id, title: 'Existing (UTC)', attendees: 2, ...existing });
 
     // Same instant, written as India Standard Time (+05:30)
     const other = await newMember();
-    const res = await other.createBooking({
+    const res = await other.bookings.create({
       roomId: room.id,
       title: 'Same slot, IST',
       attendees: 2,
@@ -71,20 +71,20 @@ test.describe('Bookings: overlap rules', () => {
 
   test('the same time in a different room is not a conflict @regression', async ({ member, admin, room }) => {
     const window = slot({ daysAhead: 2, ...EXISTING });
-    await member.createBooking({ roomId: room.id, title: 'Room A', attendees: 2, ...window });
+    await member.bookings.create({ roomId: room.id, title: 'Room A', attendees: 2, ...window });
 
-    const otherRoom = await (await admin.createRoom({ name: `Other ${Date.now()}`, capacity: 4, floor: 1 })).json();
-    const res = await member.createBooking({ roomId: otherRoom.id, title: 'Room B', attendees: 2, ...window });
+    const otherRoom = await (await admin.rooms.create({ name: `Other ${Date.now()}`, capacity: 4, floor: 1 })).json();
+    const res = await member.bookings.create({ roomId: otherRoom.id, title: 'Room B', attendees: 2, ...window });
     expect(res.status()).toBe(201);
   });
 
   test('a cancelled booking no longer blocks its slot @regression', async ({ member, newMember, room }) => {
     const window = slot({ daysAhead: 2, ...EXISTING });
-    const first = await (await member.createBooking({ roomId: room.id, title: 'Will cancel', attendees: 2, ...window })).json();
-    expect((await member.cancelBooking(first.id)).status()).toBe(200);
+    const first = await (await member.bookings.create({ roomId: room.id, title: 'Will cancel', attendees: 2, ...window })).json();
+    expect((await member.bookings.cancel(first.id)).status()).toBe(200);
 
     const other = await newMember();
-    const res = await other.createBooking({ roomId: room.id, title: 'Takes the slot', attendees: 2, ...window });
+    const res = await other.bookings.create({ roomId: room.id, title: 'Takes the slot', attendees: 2, ...window });
     expect(res.status()).toBe(201);
   });
 });
@@ -93,11 +93,11 @@ test.describe('Rooms: availability', () => {
   test('shows busy windows for the day, without leaking titles or owners @smoke @security', async ({ member, newMember, room }) => {
     const morning = slot({ daysAhead: 3, hour: 9 });
     const afternoon = slot({ daysAhead: 3, hour: 14, durationMinutes: 30 });
-    await member.createBooking({ roomId: room.id, title: 'Confidential: layoffs', attendees: 2, ...afternoon });
-    await member.createBooking({ roomId: room.id, title: 'Morning sync', attendees: 2, ...morning });
+    await member.bookings.create({ roomId: room.id, title: 'Confidential: layoffs', attendees: 2, ...afternoon });
+    await member.bookings.create({ roomId: room.id, title: 'Morning sync', attendees: 2, ...morning });
 
     const viewer = await newMember();
-    const res = await viewer.availability(room.id, morning.start.slice(0, 10));
+    const res = await viewer.rooms.availability(room.id, morning.start.slice(0, 10));
 
     expect(res.status()).toBe(200);
     await expect(res).toMatchSchema(AvailabilitySchema); // strict schema: any extra field (title, ownerId) fails
@@ -108,16 +108,16 @@ test.describe('Rooms: availability', () => {
 
   test('cancelled bookings are not shown as busy @regression', async ({ member, room }) => {
     const window = slot({ daysAhead: 3, hour: 9 });
-    const b = await (await member.createBooking({ roomId: room.id, title: 'Cancel me', attendees: 1, ...window })).json();
-    await member.cancelBooking(b.id);
+    const b = await (await member.bookings.create({ roomId: room.id, title: 'Cancel me', attendees: 1, ...window })).json();
+    await member.bookings.cancel(b.id);
 
-    const { busy } = await (await member.availability(room.id, window.start.slice(0, 10))).json();
+    const { busy } = await (await member.rooms.availability(room.id, window.start.slice(0, 10))).json();
     expect(busy).toEqual([]);
   });
 
   for (const date of ['2026-13-01', '01-10-2026', 'tomorrow', '']) {
     test(`rejects an invalid date "${date}" @regression`, async ({ member, room }) => {
-      await expect(await member.availability(room.id, date)).toFailWith(400, 'VALIDATION_ERROR');
+      await expect(await member.rooms.availability(room.id, date)).toFailWith(400, 'VALIDATION_ERROR');
     });
   }
 });

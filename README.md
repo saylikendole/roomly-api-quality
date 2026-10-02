@@ -59,7 +59,17 @@ The test for it is marked `test.fail()`. It passes while the bug exists and fail
 
 **Every test creates its own member and room.** Fixtures in `tests/fixtures.ts` set up fresh data per test, so tests run in parallel and in any order without sharing state. There's no "run the create test before the delete test" coupling.
 
-**The API client doesn't assert.** `RoomlyClient` returns the raw response and the test decides what the status code means. A client that throws on non-2xx would make negative testing awkward.
+**API object model.** This is the Page Object Model applied to an API. Each resource has its own class in `tests/api/` (`AuthApi`, `UsersApi`, `RoomsApi`, `BookingsApi`), the way each page has a page object in a UI suite. `RoomlyApi` groups them for one actor, sharing that actor's login, so tests read like what a user does:
+
+```ts
+await member.bookings.create({ roomId, title: 'Sprint planning', attendees: 5, ...slot() });
+await admin.rooms.create({ name: 'Fjord', capacity: 6, floor: 3 });
+await expect(await intruder.bookings.cancel(id)).toFailWith(404, 'NOT_FOUND');
+```
+
+If an endpoint's URL or headers change, the fix happens in one API object and no test changes.
+
+**API objects don't assert.** They return the raw response and the test decides what the status code means. An API object that threw on non-2xx would make negative testing awkward.
 
 **Contracts are strict.** Responses are validated with zod schemas that reject unknown fields. If the API ever starts returning something extra, like an owner's email in the availability endpoint, a test fails.
 
@@ -91,10 +101,14 @@ app/src/                  the system under test (Express + TypeScript)
   routes/                 auth, rooms, bookings
   rules.ts                booking rules: slots, durations, overlap
 tests/
-  fixtures.ts             per-test data setup + custom matchers
+  api/                    API object model (one class per resource)
+    BaseApi.ts            shared session, auth headers
+    AuthApi.ts, UsersApi.ts, RoomsApi.ts, BookingsApi.ts
+    RoomlyApi.ts          one actor: groups the API objects
+  fixtures.ts             per-test actors and data + custom matchers
   support/
-    roomly-client.ts      typed API client
     schemas.ts            zod response contracts
+    unique.ts             unique names and emails
     time.ts               date helpers
   specs/                  the tests
 perf/

@@ -33,6 +33,10 @@ There is no UI in this project on purpose. Most booking rules live in the API, a
 - **Negative and permission testing:** every "should not be allowed" rule has a test, and it checks the exact error code, not just "some 4xx".
 - **Contract testing:** every successful response is validated against a strict zod schema. Strict mode means an unexpected new field fails the test, which is how a leaked `password` or `ownerEmail` would get caught.
 
+## Structure
+
+Tests never build URLs or headers. They go through an API object model in `tests/api/`, the API equivalent of the Page Object Model: one class per resource, grouped per actor (anonymous, member, admin). Endpoint changes are fixed in one place, and specs read as business behaviour.
+
 ## Isolation and flakiness
 
 - Every test creates its own member and its own room through fixtures. Tests never share bookings, so they run fully in parallel and in any order.
