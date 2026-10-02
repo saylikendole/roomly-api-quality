@@ -12,7 +12,7 @@ on:
       extra_scenario:
         description: 'Extra k6 scenario to run after smoke + load'
         type: choice
-        options: [none, stress, contention]
+        options: [none, stress]
         default: none
 
 concurrency:
@@ -76,6 +76,9 @@ jobs:
 
       - name: Smoke test
         run: k6 run perf/scenarios/smoke.ts
+
+      - name: Contention test (regression guard for BUG-001)
+        run: k6 run perf/scenarios/contention.ts
 
       - name: Load test
         env:

@@ -43,9 +43,9 @@ Tests never build URLs or headers. They go through an API object model in `tests
 - Dates are generated relative to today at fixed UTC times, so results don't depend on when the suite runs.
 - **Retries are off.** On an API suite, a test that passes on the second try is hiding a problem (often a race condition), and I'd rather see it.
 
-## Known bugs
+## Bugs found
 
-Known bugs stay in the suite, marked with `test.fail()` and linked to a bug report. The suite stays green, the bug stays visible, and a fix is detected automatically. See [BUG-001](bugs/BUG-001-double-booking.md).
+[BUG-001](bugs/BUG-001-double-booking.md), a double-booking race condition, was found by the concurrency tests and confirmed with k6. It's fixed. Every bug fix comes with a regression test, and I check that the test fails against the old code before trusting it.
 
 ## Performance approach
 
@@ -54,7 +54,7 @@ Known bugs stay in the suite, marked with `test.fail()` and linked to a bug repo
 | Smoke | Script and system work at all | 1 user, 30 s | Every push |
 | Load | Expected office peak | 30 users, ~3 min | Every push |
 | Stress | Find the breaking point | up to 300 req/s | Manual |
-| Contention | Correctness under simultaneous writes | 20 users, same slot | Manual until BUG-001 is fixed |
+| Contention | Correctness under simultaneous writes | 20 users, same slot | Every push |
 
 Traffic in load and stress tests follows a realistic mix: 70% browsing, 20% booking and cancelling, 10% checking "my bookings". Thresholds act as service-level objectives: p95 under 300 ms, p99 under 800 ms, under 1% errors. A `409 Conflict` counts as a correct answer, not an error.
 

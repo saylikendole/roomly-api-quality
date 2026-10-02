@@ -7,7 +7,7 @@
 
 API and performance tests for **Roomly**, a small meeting-room booking REST API. The API ships inside this repo so the suite always has a real, controllable system to test, and so the load tests hit something I own instead of a free public API.
 
-100 API tests run in about 8 seconds. They found a double-booking race condition that sequential tests can't see, documented in [BUG-001](docs/bugs/BUG-001-double-booking.md).
+102 API tests run in about 8 seconds. They found a double-booking race condition that sequential tests can't see. It's now fixed, and the write-up is in [BUG-001](docs/bugs/BUG-001-double-booking.md).
 
 ## Quick start
 
@@ -29,7 +29,7 @@ npm run start:test        # in a second terminal: start the API
 npm run perf:smoke        # 1 user, 30 s
 npm run perf:load         # 30 users, office peak
 npm run perf:stress       # ramp until it breaks
-npm run perf:contention   # reproduces BUG-001 under load
+npm run perf:contention   # 20 users grab the same slot: exactly one may win
 ```
 
 ## What's tested
@@ -43,17 +43,21 @@ npm run perf:contention   # reproduces BUG-001 under load
 | Viewing and cancelling | Owner-only access (404, not 403), admin override, double cancel | `bookings-manage.spec.ts` |
 | Idempotency | Safe retries with `Idempotency-Key`, keys scoped per user | `idempotency.spec.ts` |
 | Security sanity | Headers, 413 on large bodies, no stack traces, injection-style IDs, privilege escalation, password never returned | `security.spec.ts` |
-| Concurrency | 8 simultaneous requests for one slot (BUG-001), plus a control test | `concurrency.spec.ts` |
+| Concurrency | 8 simultaneous requests for one slot, parallel bookings past the 5-booking limit, parallel retries with one idempotency key, plus a control test | `concurrency.spec.ts` |
 
 The reasoning behind what's covered, and what isn't, is in [docs/TEST-STRATEGY.md](docs/TEST-STRATEGY.md).
 
-## The bug this suite found
+## The bug this suite found, and the fix
 
 Book a slot, then book the same slot again: you get `409 Conflict`, as you should. Every sequential test passes.
 
 Send 8 requests for the same slot **at the same moment**, and several of them get `201 Created`. Under k6 (20 users, 5 rounds) the API created 87 bookings where 5 was correct. The cause is a check-then-act race in `POST /bookings`.
 
-The test for it is marked `test.fail()`. It passes while the bug exists and fails as soon as someone fixes it, which is the prompt to remove the marker and close the bug. Full write-up, root cause and suggested fixes: [BUG-001](docs/bugs/BUG-001-double-booking.md).
+While fixing it I found the same pattern in two more places: one member sending bookings in parallel could get past the 5-booking limit, and parallel retries with one idempotency key could create duplicates.
+
+The fix makes the check and the save one atomic step, using a small per-room and per-user lock (`app/src/locks.ts`). To be sure the tests really catch the bug, I ran them against the old code, and all three race tests failed. Now they pass, k6 contention creates exactly 5 bookings, and load-test response times didn't change. Both checks run in CI on every push.
+
+Full write-up with root cause, fix and before/after numbers: [BUG-001](docs/bugs/BUG-001-double-booking.md).
 
 ## Design decisions
 
@@ -126,9 +130,9 @@ GitHub Actions on every push and pull request:
 
 1. Type check the app, the tests and the k6 scripts
 2. Run the API tests (report and JUnit XML uploaded as artifacts)
-3. Start the API, then run k6 smoke and load. A broken threshold fails the build.
+3. Start the API, then run k6 smoke, contention and load. A broken threshold fails the build.
 
-Stress and contention runs can be triggered manually from the Actions tab.
+Stress runs can be triggered manually from the Actions tab.
 
 ## About the API
 
