@@ -40,6 +40,7 @@ Tests never build URLs or headers. They go through an API object model in `tests
 ## Isolation and flakiness
 
 - Every test creates its own member and its own room through fixtures. Tests never share bookings, so they run fully in parallel and in any order.
+- The one exception is the room listing: pagination needs a list that doesn't change during the test. Those tests run in a separate first phase (the `catalogue` project) with nothing else running, so they can check the exact seeded rooms.
 - Dates are generated relative to today at fixed UTC times, so results don't depend on when the suite runs.
 - **Retries are off.** On an API suite, a test that passes on the second try is hiding a problem (often a race condition), and I'd rather see it.
 

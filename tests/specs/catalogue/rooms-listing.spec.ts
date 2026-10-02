@@ -1,6 +1,13 @@
-import { test, expect } from '../fixtures';
-import { unique } from '../support/unique';
-import { RoomPageSchema, RoomSchema, type Room } from '../support/schemas';
+import { test, expect } from '../../fixtures';
+import { RoomPageSchema, type Room } from '../../support/schemas';
+
+/**
+ * These tests read the WHOLE room list, so they need it to stay still while
+ * they run. They live in the "catalogue" project, which Playwright runs
+ * before any test that creates rooms (see playwright.config.ts). That makes
+ * exact assertions on the seeded catalogue safe.
+ */
+const SEEDED_ROOM_IDS_BY_NAME = ['r-aurora', 'r-boreal', 'r-cirrus', 'r-delta', 'r-ember', 'r-fjord'];
 
 test.describe('Rooms: listing and search', () => {
   test('lists rooms in the documented shape @smoke', async ({ member }) => {
@@ -19,17 +26,25 @@ test.describe('Rooms: listing and search', () => {
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
   });
 
-  test('pagination walks the full list with no gaps or duplicates @regression', async ({ member }) => {
-    const { total } = await (await member.rooms.list({ limit: 50 })).json();
-    const seen: string[] = [];
-    for (let offset = 0; offset < total; offset += 2) {
-      const page = await (await member.rooms.list({ limit: 2, offset })).json();
-      expect(page.total).toBe(total);
-      seen.push(...page.items.map((r: Room) => r.id));
-    }
-    expect(seen).toHaveLength(total);
-    expect(new Set(seen).size).toBe(total);
+  test('the list contains exactly the seeded rooms, in name order @regression', async ({ member }) => {
+    const page = await (await member.rooms.list({ limit: 50 })).json();
+    expect(page.total).toBe(SEEDED_ROOM_IDS_BY_NAME.length);
+    expect(page.items.map((r: Room) => r.id)).toEqual(SEEDED_ROOM_IDS_BY_NAME);
   });
+
+  for (const pageSize of [1, 2, 4]) {
+    test(`pagination with page size ${pageSize} returns every room exactly once, in order @regression`, async ({ member }) => {
+      const seen: string[] = [];
+      for (let offset = 0; offset < SEEDED_ROOM_IDS_BY_NAME.length; offset += pageSize) {
+        const page = await (await member.rooms.list({ limit: pageSize, offset })).json();
+        expect(page).toMatchObject({ total: SEEDED_ROOM_IDS_BY_NAME.length, limit: pageSize, offset });
+        expect(page.items.length).toBeLessThanOrEqual(pageSize);
+        seen.push(...page.items.map((r: Room) => r.id));
+      }
+      // No gaps, no duplicates, same order as the unpaged list
+      expect(seen).toEqual(SEEDED_ROOM_IDS_BY_NAME);
+    });
+  }
 
   test('an offset past the end returns an empty page, not an error @regression', async ({ member }) => {
     const res = await member.rooms.list({ offset: 10_000 });
@@ -72,40 +87,5 @@ test.describe('Rooms: listing and search', () => {
 
   test('unknown room id → 404 @regression', async ({ member }) => {
     await expect(await member.rooms.get('r-does-not-exist')).toFailWith(404, 'NOT_FOUND');
-  });
-});
-
-test.describe('Rooms: administration', () => {
-  test('an admin can create a room and it can be fetched afterwards @smoke', async ({ admin }) => {
-    const created = await admin.rooms.create({ name: unique.roomName(), capacity: 6, floor: 2, equipment: ['whiteboard'] });
-    expect(created.status()).toBe(201);
-    await expect(created).toMatchSchema(RoomSchema);
-
-    const room = await created.json();
-    const fetched = await admin.rooms.get(room.id);
-    expect(await fetched.json()).toEqual(room);
-  });
-
-  test('a member cannot create rooms @security', async ({ member }) => {
-    const res = await member.rooms.create({ name: unique.roomName(), capacity: 4, floor: 1 });
-    await expect(res).toFailWith(403, 'FORBIDDEN');
-  });
-
-  // Boundary value analysis on capacity: valid range is 1-50
-  for (const [capacity, expected] of [
-    [0, 400],
-    [1, 201],
-    [50, 201],
-    [51, 400],
-  ] as const) {
-    test(`capacity ${capacity} → ${expected} @regression`, async ({ admin }) => {
-      const res = await admin.rooms.create({ name: unique.roomName(), capacity, floor: 1 });
-      expect(res.status()).toBe(expected);
-    });
-  }
-
-  test('rejects equipment outside the allowed list @regression', async ({ admin }) => {
-    const res = await admin.rooms.create({ name: unique.roomName(), capacity: 4, floor: 1, equipment: ['coffee machine'] });
-    await expect(res).toFailWith(400, 'VALIDATION_ERROR');
   });
 });

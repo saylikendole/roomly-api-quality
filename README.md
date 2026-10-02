@@ -7,7 +7,7 @@
 
 API and performance tests for **Roomly**, a small meeting-room booking REST API. The API ships inside this repo so the suite always has a real, controllable system to test, and so the load tests hit something I own instead of a free public API.
 
-102 API tests run in about 8 seconds. They found a double-booking race condition that sequential tests can't see. It's now fixed, and the write-up is in [BUG-001](docs/bugs/BUG-001-double-booking.md).
+105 API tests run in about 9 seconds. They found a double-booking race condition that sequential tests can't see. It's now fixed, and the write-up is in [BUG-001](docs/bugs/BUG-001-double-booking.md).
 
 ## Quick start
 
@@ -37,7 +37,8 @@ npm run perf:contention   # 20 users grab the same slot: exactly one may win
 | Area | Examples | Spec |
 | --- | --- | --- |
 | Authentication | Login contract, no account enumeration, bad and forged tokens | `auth.spec.ts` |
-| Rooms | Pagination with no gaps or duplicates, filters, capacity boundaries, admin-only creation | `rooms.spec.ts` |
+| Rooms: listing | Exact seeded catalogue, pagination at page sizes 1/2/4 with no gaps or duplicates, filters, query validation | `catalogue/rooms-listing.spec.ts` |
+| Rooms: admin | Capacity boundaries, admin-only creation, allowed equipment | `rooms-admin.spec.ts` |
 | Creating bookings | Duration and slot boundaries, timezone normalisation, booking horizon, 5-booking limit, field-level validation errors | `bookings-create.spec.ts` |
 | Overlap rules | Decision table for every way two time windows can relate, cross-timezone clashes, availability without leaking titles | `bookings-overlap.spec.ts` |
 | Viewing and cancelling | Owner-only access (404, not 403), admin override, double cancel | `bookings-manage.spec.ts` |
@@ -62,6 +63,8 @@ Full write-up with root cause, fix and before/after numbers: [BUG-001](docs/bugs
 ## Design decisions
 
 **Every test creates its own member and room.** Fixtures in `tests/fixtures.ts` set up fresh data per test, so tests run in parallel and in any order without sharing state. There's no "run the create test before the delete test" coupling.
+
+**Tests that read the whole list run first, on their own.** Pagination can only be checked exactly against a list that isn't changing. The listing tests live in a `catalogue` Playwright project that runs before everything else (`dependencies` in `playwright.config.ts`), so they can assert the exact seeded rooms. An earlier version mixed them with tests that create rooms, and it failed on a machine with more CPU cores because rooms were being added mid-walk. Parallel test design has to account for shared state, not just for the happy path on one laptop.
 
 **API object model.** This is the Page Object Model applied to an API. Each resource has its own class in `tests/api/` (`AuthApi`, `UsersApi`, `RoomsApi`, `BookingsApi`), the way each page has a page object in a UI suite. `RoomlyApi` groups them for one actor, sharing that actor's login, so tests read like what a user does:
 

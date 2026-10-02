@@ -21,6 +21,14 @@ export default defineConfig({
     baseURL: BASE_URL,
     extraHTTPHeaders: { Accept: 'application/json' },
   },
+  projects: [
+    // Phase 1: tests that read the whole seeded room list. Nothing else runs
+    // alongside them, so the list can't change under their feet.
+    { name: 'catalogue', testMatch: /catalogue\/.*\.spec\.ts/ },
+    // Phase 2: everything else, fully parallel. These tests create their own
+    // rooms and bookings, which would make a shared list unstable.
+    { name: 'api', testIgnore: /catalogue\//, dependencies: ['catalogue'] },
+  ],
   webServer: process.env.BASE_URL
     ? undefined // pointing at an already-running environment
     : {
