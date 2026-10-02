@@ -3,6 +3,7 @@ import { requireAuth } from '../auth.js';
 import { ApiError, notFound } from '../errors.js';
 import { assertValidWindow, findConflict, RULES } from '../rules.js';
 import { dbWrite, newId, store, type Booking } from '../store.js';
+import { withLocks } from '../locks.js';
 import { createBookingBody } from '../validation.js';
 
 export const bookingsRouter = Router();
@@ -16,16 +17,7 @@ bookingsRouter.post('/bookings', async (req, res) => {
     throw new ApiError(400, 'INVALID_IDEMPOTENCY_KEY', 'Idempotency-Key must be 8-64 characters');
   }
 
-  // A retried request with the same key returns the original booking instead of creating a duplicate
-  if (idemKey) {
-    const existingId = store.idempotency.get(`${user.id}:${idemKey}`);
-    const existing = existingId && store.bookings.find((b) => b.id === existingId);
-    if (existing) {
-      res.status(200).set('Idempotent-Replay', 'true').json(existing);
-      return;
-    }
-  }
-
+  // Stateless checks first: they need no lock
   const body = createBookingBody.parse(req.body);
   const room = store.rooms.find((r) => r.id === body.roomId);
   if (!room) throw notFound('Room');
@@ -38,43 +30,59 @@ bookingsRouter.post('/bookings', async (req, res) => {
     throw new ApiError(422, 'OVER_CAPACITY', `${room.name} holds at most ${room.capacity} people`);
   }
 
-  if (user.role === 'member') {
-    const upcoming = store.bookings.filter(
-      (b) => b.ownerId === user.id && b.status === 'confirmed' && new Date(b.end) > new Date(),
-    ).length;
-    if (upcoming >= RULES.maxUpcomingBookingsPerMember) {
-      throw new ApiError(
-        422,
-        'BOOKING_LIMIT_REACHED',
-        `Members can hold at most ${RULES.maxUpcomingBookingsPerMember} upcoming bookings`,
-      );
+  // Everything that reads shared state and then writes it happens inside the
+  // locks, so concurrent requests can't all pass the same check (BUG-001).
+  // The room lock stops double bookings; the user lock keeps the 5-booking
+  // limit and idempotent retries correct when one user sends requests in parallel.
+  await withLocks([`room:${room.id}`, `user:${user.id}`], async () => {
+    // A retried request with the same key returns the original booking instead of creating a duplicate
+    if (idemKey) {
+      const existingId = store.idempotency.get(`${user.id}:${idemKey}`);
+      const existing = existingId && store.bookings.find((b) => b.id === existingId);
+      if (existing) {
+        res.status(200).set('Idempotent-Replay', 'true').json(existing);
+        return;
+      }
     }
-  }
 
-  const conflict = findConflict(store.bookings, room.id, start, end);
-  if (conflict) {
-    throw new ApiError(409, 'BOOKING_CONFLICT', 'The room is already booked for part of this time', {
-      conflictingWindow: { start: conflict.start, end: conflict.end },
-    });
-  }
+    if (user.role === 'member') {
+      const upcoming = store.bookings.filter(
+        (b) => b.ownerId === user.id && b.status === 'confirmed' && new Date(b.end) > new Date(),
+      ).length;
+      if (upcoming >= RULES.maxUpcomingBookingsPerMember) {
+        throw new ApiError(
+          422,
+          'BOOKING_LIMIT_REACHED',
+          `Members can hold at most ${RULES.maxUpcomingBookingsPerMember} upcoming bookings`,
+        );
+      }
+    }
 
-  const booking: Booking = {
-    id: newId('b'),
-    roomId: room.id,
-    ownerId: user.id,
-    title: body.title,
-    start: start.toISOString(),
-    end: end.toISOString(),
-    attendees: body.attendees,
-    status: 'confirmed',
-    createdAt: new Date().toISOString(),
-  };
+    const conflict = findConflict(store.bookings, room.id, start, end);
+    if (conflict) {
+      throw new ApiError(409, 'BOOKING_CONFLICT', 'The room is already booked for part of this time', {
+        conflictingWindow: { start: conflict.start, end: conflict.end },
+      });
+    }
 
-  await dbWrite();
-  store.bookings.push(booking);
-  if (idemKey) store.idempotency.set(`${user.id}:${idemKey}`, booking.id);
+    const booking: Booking = {
+      id: newId('b'),
+      roomId: room.id,
+      ownerId: user.id,
+      title: body.title,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      attendees: body.attendees,
+      status: 'confirmed',
+      createdAt: new Date().toISOString(),
+    };
 
-  res.status(201).location(`/bookings/${booking.id}`).json(booking);
+    await dbWrite();
+    store.bookings.push(booking);
+    if (idemKey) store.idempotency.set(`${user.id}:${idemKey}`, booking.id);
+
+    res.status(201).location(`/bookings/${booking.id}`).json(booking);
+  });
 });
 
 bookingsRouter.get('/bookings/me', (req, res) => {
